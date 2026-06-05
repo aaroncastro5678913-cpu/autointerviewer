@@ -1,16 +1,33 @@
 {
-  "name": "chinese-voice-interview",
-  "version": "1.0.0",
+  "name": "auto-interview",
+  "version": "2.0.0",
   "private": true,
-  "description": "Automated AI voice interview for Chinese proficiency assessment",
   "type": "module",
+  "description": "Automated AI Chinese interview + Telegram bot — one unified project (Netlify + libSQL/SQLite)",
   "scripts": {
     "dev": "node tools/dev.js",
-    "install:all": "npm --prefix backend install && npm --prefix frontend install",
-    "seed": "npm --prefix backend run seed",
-    "dev:backend": "npm --prefix backend run dev",
-    "dev:frontend": "npm --prefix frontend run dev",
-    "mock:bot": "node tools/mock-telegram-bot.js",
-    "build": "npm --prefix frontend run build"
+    "dev:web": "vite",
+    "dev:server": "node --watch backend/src/index.js",
+    "build": "vite build",
+    "start": "node backend/src/index.js",
+    "set-webhook": "node backend/src/scripts/set-webhook.mjs",
+    "seed": "node -e \"import('./backend/src/db.js').then(async m=>{await m.initSchema();const s=await import('./backend/src/store.js');await s.ensureSampleSession();console.log('seeded');process.exit(0)})\""
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "nanoid": "^5.0.9",
+    "openai": "^4.77.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "serverless-http": "^3.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
   }
 }

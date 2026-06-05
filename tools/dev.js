@@ -1,12 +1,11 @@
-// One command to run the whole interview app: backend + frontend together.
-// Usage:  npm run dev   (from the Auto_interview folder)
-// No extra dependencies — just spawns the two existing dev scripts and prefixes
-// their output. Press Ctrl+C to stop both.
+// One command to run the whole project locally: backend (API + Telegram bot in
+// polling mode) + the Vite frontend. No extra deps — just spawns two npm scripts
+// and prefixes their output. Press Ctrl+C to stop both.
 import { spawn } from 'node:child_process';
 
 const services = [
-  { name: 'backend', args: ['--prefix', 'backend', 'run', 'dev'] },
-  { name: 'frontend', args: ['--prefix', 'frontend', 'run', 'dev'] },
+  { name: 'server', args: ['run', 'dev:server'] },
+  { name: 'web', args: ['run', 'dev:web'] },
 ];
 
 function tagLines(tag, buf) {
@@ -22,12 +21,11 @@ function tagLines(tag, buf) {
 
 const children = services.map((svc) => {
   const tag = `[${svc.name}]`;
-  // shell:true so `npm` resolves on Windows.
-  const child = spawn('npm', svc.args, { shell: true });
+  const child = spawn('npm', svc.args, { shell: true }); // shell:true for Windows
   child.stdout.on('data', (d) => process.stdout.write(tagLines(tag, d)));
   child.stderr.on('data', (d) => process.stderr.write(tagLines(tag, d)));
   child.on('exit', (code) => {
-    console.log(`${tag} exited (code ${code}). Stopping the other service…`);
+    console.log(`${tag} exited (code ${code}). Stopping the other…`);
     shutdown();
   });
   return child;
@@ -50,4 +48,4 @@ function shutdown() {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-console.log('Starting interview backend + frontend…  (press Ctrl+C to stop both)\n');
+console.log('Starting backend (API + bot) + frontend…  (Ctrl+C to stop both)\n');

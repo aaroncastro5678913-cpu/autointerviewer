@@ -1,18 +1,29 @@
-# Netlify build config for the Auto_interview repo.
-# The web app is the Vite/React project in the frontend/ subfolder, so we
-# install + build there and publish the static output it produces.
+# Netlify config for the unified Auto-Interview project.
+# Frontend (Vite) is served statically; the API + Telegram webhook run as a
+# single Netlify Function (netlify/functions/api.js) backed by libSQL/Turso.
 
 [build]
-  # Install the frontend deps and build it (vite build -> frontend/dist).
-  command = "npm install --prefix frontend && npm --prefix frontend run build"
-  # Static output to deploy (relative to the repo root).
-  publish = "frontend/dist"
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
 
 [build.environment]
-  # Vite needs Node 18+. 20 is a safe, current LTS for the build.
   NODE_VERSION = "20"
 
-# Single-page app: let React Router handle deep links like /interview/<token>.
+[functions]
+  node_bundler = "esbuild"
+  # The native local-file client isn't used in production (Turso is remote);
+  # keep it external so esbuild doesn't try to bundle native binaries.
+  external_node_modules = ["@libsql/client"]
+
+# API + Telegram webhook -> the function. Must be ABOVE the SPA catch-all.
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
+
+# Single-page app: deep links like /interview/<token> serve index.html.
 [[redirects]]
   from = "/*"
   to = "/index.html"

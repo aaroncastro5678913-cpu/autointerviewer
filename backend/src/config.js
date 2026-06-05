@@ -19,13 +19,30 @@ function int(value, fallback) {
 
 export const config = {
   port: int(process.env.PORT, 4000),
-  appBaseUrl: process.env.APP_BASE_URL || 'http://localhost:5173',
+
+  // Database (libSQL = SQLite). Local dev uses a file; production uses Turso.
+  //   local:  file:./database/interview.db
+  //   prod:   libsql://<your-db>.turso.io  (+ DATABASE_AUTH_TOKEN)
+  databaseUrl: process.env.DATABASE_URL || 'file:./database/interview.db',
+  databaseAuthToken: process.env.DATABASE_AUTH_TOKEN || '',
+
+  // Public URL of the frontend, used to build interview links.
+  // PUBLIC_SITE_URL is the canonical name; APP_BASE_URL kept for compatibility.
+  appBaseUrl: process.env.PUBLIC_SITE_URL || process.env.APP_BASE_URL || 'http://localhost:5173',
   corsOrigins: (process.env.CORS_ORIGINS || 'http://localhost:5173')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
 
   mockMode: bool(process.env.MOCK_MODE, true),
+
+  // Telegram bot (webhook for production, long-polling for local dev).
+  telegram: {
+    botToken: process.env.TELEGRAM_BOT_TOKEN || '',
+    webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || '',
+    // 'polling' (local) | 'webhook' (deployed) | 'off'
+    mode: (process.env.TELEGRAM_MODE || 'polling').toLowerCase(),
+  },
 
   openai: {
     apiKey: process.env.OPENAI_API_KEY || '',
@@ -37,6 +54,11 @@ export const config = {
 
   webhook: {
     endpoint: process.env.TELEGRAM_BOT_RESULT_ENDPOINT || '',
+    // Notifies the bot when the candidate starts. Defaults to the result
+    // endpoint with the path swapped, so usually no extra config is needed.
+    startedEndpoint:
+      process.env.TELEGRAM_BOT_STARTED_ENDPOINT ||
+      (process.env.TELEGRAM_BOT_RESULT_ENDPOINT || '').replace('/interview-result', '/interview-started'),
     secret: process.env.RESULT_WEBHOOK_SECRET || '',
   },
 
@@ -69,5 +91,10 @@ export function warnOnConfig(logger = console) {
   }
   if (!config.adminSecret) {
     logger.warn('[config] ADMIN_API_SECRET is empty. Admin session creation is disabled.');
+  }
+  if (!config.telegram.botToken) {
+    logger.warn('[BOT] TELEGRAM_BOT_TOKEN is empty. The Telegram bot is disabled (no /start link, no result delivery).');
+  } else if (config.telegram.mode === 'webhook' && !config.telegram.webhookSecret) {
+    logger.warn('[BOT] TELEGRAM_MODE=webhook but TELEGRAM_WEBHOOK_SECRET is empty — webhook calls will not be verified.');
   }
 }

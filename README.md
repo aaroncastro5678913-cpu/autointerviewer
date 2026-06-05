@@ -6,6 +6,92 @@ An automated AI voice interview that assesses a candidate's **spoken Chinese** t
 
 ---
 
+## Unified project (one package.json) + Netlify deploy
+
+This is **one project**: the interview UI, the API, the Telegram bot, and the
+database all live together. There is a single root `package.json` — `frontend/`
+and `backend/` are just source folders, not separate npm projects.
+
+```
+Telegram ──webhook──▶ Netlify Function (/api/telegram/webhook)
+                         │ creates a session (token + chat id) in libSQL, sends the link
+Candidate opens {SITE}/interview/{token}   ← static UI (Netlify CDN)
+                         │ /api/* → the same Netlify Function (interview + result)
+                         ▼ evaluates, saves to libSQL, then
+        the function sends the result to the candidate's Telegram chat
+```
+
+- **One Netlify deploy:** static frontend (Vite → `dist/`) + **one Netlify
+  Function** (`netlify/functions/api.js`) that serves all `/api/*` routes
+  (interview, admin, Telegram webhook) by wrapping the Express app.
+- **Database = SQLite via libSQL:** a local file for dev (`file:./database/...`),
+  **Turso** (free, SQLite-compatible) in production so it persists across
+  serverless calls.
+- **Telegram = webhook** in production (Functions can't poll); **long-polling**
+  locally so `npm run dev` works with no public URL.
+
+### Structure
+```
+package.json            # ONE root package.json
+vite.config.js          # builds frontend/ -> dist/
+netlify.toml            # publish dist/, functions, /api/* + SPA redirects
+netlify/functions/
+  api.js                # serverless-http(expressApp) — all /api/* routes
+frontend/               # interview UI (React/Vite) — source folder, not its own project
+backend/src/            # server logic (source folder, not its own project)
+  app.js                # builds the Express app (shared by dev server + function)
+  index.js              # local dev server (listens + bot polling)
+  db.js                 # libSQL client + schema
+  store.js              # sessions / answers / results / telegram users (async)
+  settings.js           # runtime settings (cached)
+  routes/               # interview.js, admin.js, telegram.js
+  telegram/bot.js       # candidate bot (webhook + polling + result delivery)
+database/schema.sql     # documented schema (+ the local .db lives here)
+```
+
+### Run locally
+```bash
+npm install
+npm run dev      # backend (API + bot polling) + Vite UI together
+```
+Open `http://localhost:5173/interview/sample-dev-token-0000000000000000` for the
+demo, or (with a `TELEGRAM_BOT_TOKEN` set) message your bot `/start`.
+Other scripts: `npm run build` (UI → `dist/`), `npm run start` (prod server),
+`npm run set-webhook`.
+
+### Deploy to Netlify
+1. Create a free **Turso** DB: `turso db create autointerview` then
+   `turso db show --url autointerview` and `turso db tokens create autointerview`.
+2. On Netlify, connect this repo (build/publish are in `netlify.toml`).
+3. Set Netlify **environment variables** (below). The first request creates the
+   tables automatically.
+
+### Configure the Telegram webhook (once, after deploy)
+```bash
+# uses TELEGRAM_BOT_TOKEN + TELEGRAM_WEBHOOK_SECRET from your env/.env
+npm run set-webhook -- https://YOUR-SITE.netlify.app/api/telegram/webhook
+```
+(`npm run set-webhook -- --delete` reverts to polling for local dev.)
+
+### Required environment variables
+
+| Variable | Where | Purpose |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | both | Bot token from @BotFather. |
+| `TELEGRAM_WEBHOOK_SECRET` | prod | Secret Telegram echoes on each webhook call. |
+| `TELEGRAM_MODE` | local=`polling`, prod=`webhook` | Bot transport. |
+| `PUBLIC_SITE_URL` | both | Site URL used to build interview links. |
+| `DATABASE_URL` | both | `file:./database/interview.db` (dev) / `libsql://…turso.io` (prod). |
+| `DATABASE_AUTH_TOKEN` | prod | Turso token (remote DB only). |
+| `OPENAI_API_KEY` | optional | Real evaluation/STT/TTS (omit ⇒ `MOCK_MODE`). |
+| `ADMIN_API_SECRET` | both | Auth for admin session APIs. |
+| `MOCK_MODE` | optional | `true` runs with no OpenAI key. |
+
+> The Python recruiter bot in `../telegram_recruiter_bot` is separate and optional.
+> Don't run it on the same Telegram token as this bot at the same time.
+
+---
+
 ## How it works
 
 ```

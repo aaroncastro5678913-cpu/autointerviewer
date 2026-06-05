@@ -1,6 +1,26 @@
 import { config } from '../config.js';
 
 /**
+ * Best-effort "interview started" ping to the Telegram bot. Fire-and-forget:
+ * never throws, so it cannot affect the candidate's interview.
+ */
+export async function sendStartedWebhook(sessionToken) {
+  if (!config.webhook.startedEndpoint) return;
+  try {
+    await fetch(config.webhook.startedEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.webhook.secret}`,
+      },
+      body: JSON.stringify({ session_token: sessionToken }),
+    });
+  } catch (err) {
+    console.warn('[webhook] started ping failed:', err.message);
+  }
+}
+
+/**
  * POST the final result to the Telegram bot backend.
  * Returns { delivered: boolean, status?: number, error?: string }.
  */

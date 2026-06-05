@@ -1,23 +1,38 @@
-import db from './db.js';
+// Data access for sessions, answers, results and Telegram users (async, libSQL).
+import { db } from './db.js';
 import { nanoid } from 'nanoid';
 
 const nowIso = () => new Date().toISOString();
+const one = (rs) => (rs.rows && rs.rows.length ? rs.rows[0] : null);
+
+// ---- Telegram users ----
+
+export async function upsertTelegramUser({ telegramUserId, telegramChatId, username = null }) {
+  await db.execute({
+    sql: `INSERT INTO telegram_users (telegram_user_id, telegram_chat_id, username, created_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(telegram_user_id) DO UPDATE SET telegram_chat_id = excluded.telegram_chat_id,
+                                                      username = excluded.username`,
+    args: [String(telegramUserId), String(telegramChatId), username, nowIso()],
+  });
+}
 
 // ---- Sessions ----
 
-export function createSession({ candidateRef = null, ttlHours = 72 } = {}) {
+export async function createSession({ telegramUserId = null, telegramChatId = null, ttlHours = 72, interviewUrl = null } = {}) {
   const token = nanoid(32);
   const createdAt = nowIso();
   const expiresAt = new Date(Date.now() + ttlHours * 3600 * 1000).toISOString();
-  db.prepare(
-    `INSERT INTO sessions (session_token, status, candidate_ref, created_at, expires_at)
-     VALUES (?, 'pending', ?, ?, ?)`
-  ).run(token, candidateRef, createdAt, expiresAt);
+  await db.execute({
+    sql: `INSERT INTO sessions (session_token, telegram_user_id, telegram_chat_id, status, interview_url, created_at, expires_at)
+          VALUES (?, ?, ?, 'pending', ?, ?, ?)`,
+    args: [token, telegramUserId ? String(telegramUserId) : null, telegramChatId ? String(telegramChatId) : null, interviewUrl, createdAt, expiresAt],
+  });
   return getSession(token);
 }
 
-export function getSession(token) {
-  return db.prepare('SELECT * FROM sessions WHERE session_token = ?').get(token) || null;
+export async function getSession(token) {
+  return one(await db.execute({ sql: 'SELECT * FROM sessions WHERE session_token = ?', args: [token] }));
 }
 
 export function isExpired(session) {
@@ -25,55 +40,91 @@ export function isExpired(session) {
   return new Date(session.expires_at).getTime() < Date.now();
 }
 
-export function markStarted(token) {
-  db.prepare(
-    `UPDATE sessions SET status = 'started', started_at = ?
-     WHERE session_token = ? AND status = 'pending'`
-  ).run(nowIso(), token);
+export async function setInterviewUrl(token, url) {
+  await db.execute({ sql: 'UPDATE sessions SET interview_url = ? WHERE session_token = ?', args: [url, token] });
+}
+
+export async function markStarted(token) {
+  await db.execute({
+    sql: `UPDATE sessions SET status = 'in_progress', started_at = ?
+          WHERE session_token = ? AND status = 'pending'`,
+    args: [nowIso(), token],
+  });
   return getSession(token);
 }
 
-export function markCompleted(token, resultJson) {
-  db.prepare(
-    `UPDATE sessions
-     SET status = 'completed', completed_at = ?, result_json = ?
-     WHERE session_token = ?`
-  ).run(nowIso(), JSON.stringify(resultJson), token);
+export async function markCompleted(token, result) {
+  const now = nowIso();
+  const score = typeof result?.overall_score === 'number' ? result.overall_score : null;
+  await db.execute({
+    sql: `UPDATE sessions SET status = 'completed', completed_at = ?, score = ?, result_json = ?
+          WHERE session_token = ?`,
+    args: [now, score, JSON.stringify(result), token],
+  });
+  await db.execute({
+    sql: `INSERT INTO results (session_token, score, decision, level, result_json, created_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT(session_token) DO UPDATE SET score = excluded.score, decision = excluded.decision,
+                                                   level = excluded.level, result_json = excluded.result_json`,
+    args: [token, score, result?.decision || null, result?.level || null, JSON.stringify(result), now],
+  });
   return getSession(token);
 }
 
-export function markWebhookDelivered(token) {
-  db.prepare('UPDATE sessions SET webhook_delivered = 1 WHERE session_token = ?').run(token);
+export async function markWebhookDelivered(token) {
+  await db.execute({ sql: 'UPDATE sessions SET webhook_delivered = 1 WHERE session_token = ?', args: [token] });
 }
 
-// ---- Transcripts ----
+// ---- Answers (transcript) ----
 
-export function addTranscriptTurn(token, { question, answer_transcript = '', timestamp }) {
-  const row = db
-    .prepare('SELECT COALESCE(MAX(turn_index), -1) + 1 AS next FROM transcripts WHERE session_token = ?')
-    .get(token);
-  const turnIndex = row.next;
-  db.prepare(
-    `INSERT INTO transcripts (session_token, turn_index, question, answer_transcript, timestamp)
-     VALUES (?, ?, ?, ?, ?)`
-  ).run(token, turnIndex, question, answer_transcript, timestamp || nowIso());
-
-  const count = db
-    .prepare('SELECT COUNT(*) AS c FROM transcripts WHERE session_token = ?')
-    .get(token).c;
-  db.prepare('UPDATE sessions SET question_count = ? WHERE session_token = ?').run(count, token);
-
+export async function addTranscriptTurn(token, { question, answer_transcript = '', timestamp }) {
+  const next = one(await db.execute({
+    sql: 'SELECT COALESCE(MAX(turn_index), -1) + 1 AS next FROM answers WHERE session_token = ?',
+    args: [token],
+  }));
+  const turnIndex = Number(next.next);
+  await db.execute({
+    sql: `INSERT INTO answers (session_token, turn_index, question, answer_transcript, timestamp)
+          VALUES (?, ?, ?, ?, ?)`,
+    args: [token, turnIndex, question, answer_transcript, timestamp || nowIso()],
+  });
+  const count = await getQuestionCount(token);
+  await db.execute({ sql: 'UPDATE sessions SET question_count = ? WHERE session_token = ?', args: [count, token] });
   return { turnIndex, question_count: count };
 }
 
-export function getTranscript(token) {
-  return db
-    .prepare(
-      'SELECT turn_index, question, answer_transcript, timestamp FROM transcripts WHERE session_token = ? ORDER BY turn_index ASC'
-    )
-    .all(token);
+export async function getTranscript(token) {
+  const rs = await db.execute({
+    sql: 'SELECT turn_index, question, answer_transcript, timestamp FROM answers WHERE session_token = ? ORDER BY turn_index ASC',
+    args: [token],
+  });
+  return rs.rows;
 }
 
-export function getQuestionCount(token) {
-  return db.prepare('SELECT COUNT(*) AS c FROM transcripts WHERE session_token = ?').get(token).c;
+export async function getQuestionCount(token) {
+  const r = one(await db.execute({ sql: 'SELECT COUNT(*) AS c FROM answers WHERE session_token = ?', args: [token] }));
+  return Number(r.c);
+}
+
+// ---- Local dev demo session (matches the frontend's default redirect) ----
+export const SAMPLE_TOKEN = 'sample-dev-token-0000000000000000';
+
+export async function ensureSampleSession() {
+  const existing = await getSession(SAMPLE_TOKEN);
+  const now = nowIso();
+  if (!existing) {
+    const expires = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString();
+    await db.execute({
+      sql: `INSERT INTO sessions (session_token, status, created_at, expires_at) VALUES (?, 'pending', ?, ?)`,
+      args: [SAMPLE_TOKEN, now, expires],
+    });
+  } else if (existing.status === 'completed') {
+    await db.execute({ sql: 'DELETE FROM answers WHERE session_token = ?', args: [SAMPLE_TOKEN] });
+    await db.execute({
+      sql: `UPDATE sessions SET status='pending', started_at=NULL, completed_at=NULL,
+            result_json=NULL, score=NULL, webhook_delivered=0, question_count=0 WHERE session_token = ?`,
+      args: [SAMPLE_TOKEN],
+    });
+  }
+  return SAMPLE_TOKEN;
 }

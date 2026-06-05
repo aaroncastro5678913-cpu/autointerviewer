@@ -6,11 +6,18 @@ node_modules/
 .env.local
 .env.*.local
 
-# Backend data (SQLite db)
+# Local SQLite database files
+database/*.db
+database/*.db-shm
+database/*.db-wal
 backend/data/
 
 # Build output
+dist/
 frontend/dist/
+
+# Netlify
+.netlify/
 
 # Logs / OS
 *.log

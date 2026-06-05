@@ -1,40 +1,9 @@
-// libSQL database client (SQLite-compatible). Works two ways from one codebase:
-//   - local dev : DATABASE_URL=file:./database/interview.db   (a real SQLite file)
-//   - production: DATABASE_URL=libsql://<db>.turso.io + DATABASE_AUTH_TOKEN (serverless)
-//
-// We pick the right client at load time: the `web` client is pure-JS (safe to
-// bundle into Netlify Functions); the default client supports local files.
-import { config } from './config.js';
+-- Schema for the unified Auto-Interview project (libSQL / SQLite).
+-- This documents the tables; at runtime they are created automatically by
+-- backend/src/db.js (initSchema). The local dev DB file is created here too:
+--   database/interview.db   (DATABASE_URL=file:./database/interview.db)
 
-const isFile = config.databaseUrl.startsWith('file:');
-const { createClient } = isFile
-  ? await import('@libsql/client')
-  : await import('@libsql/client/web');
-
-export const db = createClient({
-  url: config.databaseUrl,
-  authToken: config.databaseAuthToken || undefined,
-});
-
-let initPromise = null;
-
-// Create tables if they don't exist. Idempotent and safe to call on every
-// (cold) function invocation — it only runs the DDL once per process.
-export function initSchema() {
-  if (!initPromise) {
-    initPromise = db
-      .executeMultiple(SCHEMA)
-      .then(() => console.log('[DB] schema ready'))
-      .catch((err) => {
-        initPromise = null; // allow retry on next call
-        console.error('[DB] schema init failed:', err.message);
-        throw err;
-      });
-  }
-  return initPromise;
-}
-
-const SCHEMA = `
+-- 1) Telegram users
 CREATE TABLE IF NOT EXISTS telegram_users (
   telegram_user_id  TEXT PRIMARY KEY,
   telegram_chat_id  TEXT,
@@ -42,12 +11,13 @@ CREATE TABLE IF NOT EXISTS telegram_users (
   created_at        TEXT NOT NULL
 );
 
+-- 2) Interview links / sessions
 CREATE TABLE IF NOT EXISTS sessions (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
   session_token     TEXT NOT NULL UNIQUE,
   telegram_user_id  TEXT,
   telegram_chat_id  TEXT,
-  status            TEXT NOT NULL DEFAULT 'pending',
+  status            TEXT NOT NULL DEFAULT 'pending',   -- pending|in_progress|completed|failed|expired
   interview_url     TEXT,
   score             INTEGER,
   result_json       TEXT,
@@ -60,6 +30,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(session_token);
 
+-- 3) Interview answers (one row per Q&A turn)
 CREATE TABLE IF NOT EXISTS answers (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
   session_token     TEXT NOT NULL,
@@ -70,6 +41,7 @@ CREATE TABLE IF NOT EXISTS answers (
 );
 CREATE INDEX IF NOT EXISTS idx_answers_session ON answers(session_token, turn_index);
 
+-- 4) Interview results (evaluation outcome)
 CREATE TABLE IF NOT EXISTS results (
   session_token TEXT PRIMARY KEY,
   score         INTEGER,
@@ -79,9 +51,9 @@ CREATE TABLE IF NOT EXISTS results (
   created_at    TEXT NOT NULL
 );
 
+-- Runtime settings (manual OpenAI key / mock toggle)
 CREATE TABLE IF NOT EXISTS settings (
   key        TEXT PRIMARY KEY,
   value      TEXT,
   updated_at TEXT NOT NULL
 );
-`;

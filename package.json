@@ -1,0 +1,16 @@
+{
+  "name": "chinese-voice-interview",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Automated AI voice interview for Chinese proficiency assessment",
+  "type": "module",
+  "scripts": {
+    "dev": "node tools/dev.js",
+    "install:all": "npm --prefix backend install && npm --prefix frontend install",
+    "seed": "npm --prefix backend run seed",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "mock:bot": "node tools/mock-telegram-bot.js",
+    "build": "npm --prefix frontend run build"
+  }
+}

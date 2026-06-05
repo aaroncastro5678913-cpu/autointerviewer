@@ -1,0 +1,23 @@
+{
+  "name": "chinese-interview-backend",
+  "version": "1.0.0",
+  "description": "Automated AI voice interview backend for Chinese proficiency assessment",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "seed": "node src/scripts/seed.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "nanoid": "^5.0.9",
+    "openai": "^4.77.0"
+  },
+  "engines": {
+    "node": ">=22.5"
+  }
+}

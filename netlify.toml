@@ -1,0 +1,19 @@
+# Netlify build config for the Auto_interview repo.
+# The web app is the Vite/React project in the frontend/ subfolder, so we
+# install + build there and publish the static output it produces.
+
+[build]
+  # Install the frontend deps and build it (vite build -> frontend/dist).
+  command = "npm install --prefix frontend && npm --prefix frontend run build"
+  # Static output to deploy (relative to the repo root).
+  publish = "frontend/dist"
+
+[build.environment]
+  # Vite needs Node 18+. 20 is a safe, current LTS for the build.
+  NODE_VERSION = "20"
+
+# Single-page app: let React Router handle deep links like /interview/<token>.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
